@@ -268,6 +268,35 @@ impl MainNetwork {
     pub fn list_topics(&self) -> Vec<String> {
         self.topics.keys().cloned().collect()
     }
+
+    pub fn to_graph_json(&self) -> String {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        for (topic, sg_id) in &self.topics {
+            nodes.push(serde_json::json!({
+                "id": sg_id,
+                "label": topic,
+                "type": "topic"
+            }));
+        }
+
+        for (i, topic1) in self.topics.keys().enumerate() {
+            for topic2 in self.topics.keys().skip(i + 1) {
+                edges.push(serde_json::json!({
+                    "from": topic1,
+                    "to": topic2,
+                    "type": "related"
+                }));
+            }
+        }
+
+        serde_json::json!({
+            "nodes": nodes,
+            "edges": edges
+        })
+        .to_string()
+    }
 }
 
 impl Default for MainNetwork {

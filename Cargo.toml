@@ -1,12 +1,12 @@
 [package]
-name = "kg-core"
+name = "uncverkg"
 version = "0.1.0"
 edition = "2021"
 description = "Knowledge Graph Memory Engine - A Rust library for persistent LLM memory with 3-agent architecture"
 authors = ["David <david@buildspark.com>"]
 license = "MIT"
-repository = "https://github.com/yourusername/kg-core"
-documentation = "https://github.com/yourusername/kg-core"
+repository = "https://github.com/yourusername/uncverkg"
+documentation = "https://github.com/yourusername/uncverkg"
 readme = "README.md"
 keywords = ["knowledge-graph", "llm", "memory", "ai", "rag"]
 categories = ["artificial-intelligence", "data-structures", "algorithms"]
@@ -41,7 +41,7 @@ tempfile = "3.8"
 mockall = "0.12"
 
 [[bin]]
-name = "kg-core"
+name = "uncverkg"
 path = "src/main.rs"
 required-features = ["cli"]
 

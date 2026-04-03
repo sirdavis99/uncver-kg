@@ -1,9 +1,10 @@
 use crate::graph::{Graph, MainNetwork, SubGraph};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Storage {
     base_path: PathBuf,
     graph: Arc<RwLock<Graph>>,
@@ -71,7 +72,10 @@ impl Storage {
 
             Ok(graph)
         } else {
-            Ok(Graph::new())
+            let graph = Graph::new();
+            let main_network_json = serde_json::to_string_pretty(&graph.main_network)?;
+            std::fs::write(&main_network_path, main_network_json)?;
+            Ok(graph)
         }
     }
 
