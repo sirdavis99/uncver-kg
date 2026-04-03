@@ -1,0 +1,13 @@
+{
+  "id": "274a3c03-01dc-4c05-bc44-af8f3458ffe4",
+  "label": "Reviewer",
+  "properties": {
+    "type": "agent_role",
+    "description": "Agent role in kg-core 3-agent architecture responsible for verification and reflection",
+    "architecture": "3-agent"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:24:12.045828Z",
+  "updated_at": "2026-04-03T15:24:12.045828Z"
+}

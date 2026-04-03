@@ -18,13 +18,16 @@ struct RunStats {
 
 #[derive(Default)]
 struct ChatSession {
+    #[allow(dead_code)]
     history: VecDeque<ChatMessage>,
     stats: SessionStats,
 }
 
 #[derive(Default, Clone)]
 struct ChatMessage {
+    #[allow(dead_code)]
     role: String,
+    #[allow(dead_code)]
     content: String,
 }
 
@@ -36,7 +39,7 @@ struct SessionStats {
 }
 
 #[derive(Parser)]
-#[command(name = "kg-core")]
+#[command(name = "uncverkg")]
 #[command(about = "Knowledge Graph Memory Engine CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -205,7 +208,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Review { confirm_all } => {
             println!("Running review...");
             
-            let provider = providers::OllamaProvider::default_model("gemma2:2b");
+            let _provider = providers::OllamaProvider::default_model("gemma2:2b");
             
             let g = graph.read();
             let drafts: Vec<_> = g.drafts.values().cloned().collect();

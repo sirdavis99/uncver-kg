@@ -1,0 +1,13 @@
+{
+  "id": "ce02b97e-476c-4fcb-93f1-2f19b4e66c44",
+  "label": "3-agent architecture",
+  "properties": {
+    "domain": "knowledge graph systems",
+    "description": "Design pattern for automated knowledge graph construction and curation",
+    "type": "architecture pattern"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:09.369299Z",
+  "updated_at": "2026-04-03T15:36:09.369299Z"
+}

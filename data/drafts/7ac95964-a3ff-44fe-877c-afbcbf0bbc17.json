@@ -1,0 +1,13 @@
+{
+  "id": "7ac95964-a3ff-44fe-877c-afbcbf0bbc17",
+  "label": "kg-core",
+  "properties": {
+    "language": "Rust",
+    "description": "Knowledge Graph Memory Engine built in Rust",
+    "type": "project"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:24:12.045672Z",
+  "updated_at": "2026-04-03T15:24:12.045672Z"
+}

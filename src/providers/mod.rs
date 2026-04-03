@@ -1,7 +1,8 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+
+#[allow(unused_imports)]
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMRequest {
@@ -65,6 +66,7 @@ impl From<&crate::tools::Tool> for OllamaTool {
     }
 }
 
+#[allow(async_fn_in_trait)]
 pub trait LLMProvider: Send + Sync {
     fn name(&self) -> &str;
     fn model(&self) -> &str;

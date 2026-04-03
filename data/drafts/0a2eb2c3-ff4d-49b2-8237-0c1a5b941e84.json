@@ -1,0 +1,13 @@
+{
+  "id": "0a2eb2c3-ff4d-49b2-8237-0c1a5b941e84",
+  "label": "persistent LLM memory management",
+  "properties": {
+    "type": "concept",
+    "description": "System for maintaining long-term memory for Large Language Models",
+    "domain": "AI/ML"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:24:12.045749Z",
+  "updated_at": "2026-04-03T15:24:12.045749Z"
+}

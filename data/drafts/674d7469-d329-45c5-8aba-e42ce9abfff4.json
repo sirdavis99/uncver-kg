@@ -1,0 +1,13 @@
+{
+  "id": "674d7469-d329-45c5-8aba-e42ce9abfff4",
+  "label": "knowledgegraph-yz",
+  "properties": {
+    "type": "organization",
+    "technology": "Rust/Python",
+    "description": "Organization that maintains a kg-core library"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:29.394075Z",
+  "updated_at": "2026-04-03T15:36:29.394075Z"
+}

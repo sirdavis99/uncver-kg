@@ -1,0 +1,12 @@
+{
+  "id": "5935a619-19b9-4520-a74f-4d11513f0ed5",
+  "label": "Rust",
+  "properties": {
+    "type": "programming_language",
+    "description": "Systems programming language used for kg-core"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:24:12.045768Z",
+  "updated_at": "2026-04-03T15:24:12.045768Z"
+}

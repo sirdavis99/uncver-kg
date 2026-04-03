@@ -1,0 +1,11 @@
+{
+  "id": "70c0acbc-f4b3-4f93-83ca-dff15dc94f84",
+  "label": "User",
+  "properties": {
+    "type": "person"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:32:19.231937Z",
+  "updated_at": "2026-04-03T15:32:19.231937Z"
+}

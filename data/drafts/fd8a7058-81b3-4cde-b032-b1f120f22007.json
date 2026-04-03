@@ -1,0 +1,13 @@
+{
+  "id": "fd8a7058-81b3-4cde-b032-b1f120f22007",
+  "label": "Actor",
+  "properties": {
+    "type": "agent_role",
+    "architecture": "3-agent",
+    "description": "Agent role in kg-core 3-agent architecture responsible for task execution"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:24:12.045810Z",
+  "updated_at": "2026-04-03T15:24:12.045810Z"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "8c1a44b6-d559-42d9-9d3c-916c48da255d",
+  "label": "User --USES--> Ollama",
+  "properties": {
+    "predicate": "USES",
+    "object": "Ollama"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T14:43:21.919915Z",
+  "updated_at": "2026-04-03T14:43:21.919915Z"
+}

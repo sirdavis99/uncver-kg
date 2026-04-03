@@ -1,0 +1,13 @@
+{
+  "id": "eacd18e7-733b-4b28-ad1c-b497ec4b2f53",
+  "label": "kg-core project",
+  "properties": {
+    "ambiguity": "multiple_possible_meanings",
+    "description": "A project name that could refer to multiple knowledge graph related implementations",
+    "type": "software_project"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:29.394034Z",
+  "updated_at": "2026-04-03T15:36:29.394034Z"
+}

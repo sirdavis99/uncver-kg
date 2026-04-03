@@ -1,0 +1,12 @@
+{
+  "id": "91c09ef1-f3c2-49cf-8974-06866dda5ada",
+  "label": "User --IS_LEARNING--> Rust",
+  "properties": {
+    "object": "Rust",
+    "predicate": "IS_LEARNING"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T14:43:55.893877Z",
+  "updated_at": "2026-04-03T14:43:55.893877Z"
+}

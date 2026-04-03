@@ -1,0 +1,12 @@
+{
+  "id": "59f62026-7877-46de-9e31-b9e7904d04fa",
+  "label": "User --BUILDS--> knowledge graph",
+  "properties": {
+    "object": "knowledge graph",
+    "predicate": "BUILDS"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T14:43:21.919985Z",
+  "updated_at": "2026-04-03T14:43:21.919985Z"
+}
