@@ -3,6 +3,7 @@ use anyhow::Result;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::{debug, info};
 
 #[derive(Clone)]
 pub struct Storage {
@@ -28,7 +29,30 @@ impl Storage {
             std::fs::create_dir_all(&drafts_dir)?;
         }
 
+        // Setup persistent file logging
+        let log_path = base_path.join("uncverkg.log");
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::sync::Mutex;
+            let _ = tracing_subscriber::fmt()
+                .with_writer(Mutex::new(file))
+                .with_ansi(false)
+                .with_target(true)
+                .with_thread_ids(true)
+                .try_init();
+        }
+
+        info!("[STORAGE] Initialized at {:?}", base_path);
+
         let graph = Self::load_or_create(&base_path)?;
+        info!(
+            "[STORAGE] Loaded graph: {} subgraphs, {} drafts",
+            graph.subgraphs.len(),
+            graph.drafts.len()
+        );
 
         Ok(Self {
             base_path,
@@ -84,6 +108,10 @@ impl Storage {
         let path = self.base_path.join("main_network.json");
         let json = serde_json::to_string_pretty(&graph.main_network)?;
         std::fs::write(path, json)?;
+        info!(
+            "[STORAGE] Saved main_network.json with {} topics",
+            graph.main_network.list_topics().len()
+        );
         Ok(())
     }
 
@@ -94,6 +122,12 @@ impl Storage {
             .join(format!("{}.json", subgraph.id));
         let json = serde_json::to_string_pretty(subgraph)?;
         std::fs::write(path, json)?;
+        info!(
+            "[STORAGE] Saved subgraph '{}' (id: {}, nodes: {})",
+            subgraph.name,
+            subgraph.id,
+            subgraph.nodes.len()
+        );
         Ok(())
     }
 
@@ -104,6 +138,7 @@ impl Storage {
             .join(format!("{}.json", node.id));
         let json = serde_json::to_string_pretty(node)?;
         std::fs::write(path, json)?;
+        debug!("[STORAGE] Saved draft node: {} ({})", node.label, node.id);
         Ok(())
     }
 

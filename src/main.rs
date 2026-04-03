@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use kg_core::*;
 use std::sync::Arc;
 use std::collections::VecDeque;
+use tracing::{info, error};
 
 #[derive(Default)]
 struct RunStats {
@@ -104,7 +105,8 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    // Don't init default tracing - let storage handle it
+    // tracing_subscriber::fmt::init(); 
 
     let cli = Cli::parse();
 
@@ -130,6 +132,14 @@ async fn main() -> anyhow::Result<()> {
             let mut g = graph.write();
             let id = g.create_subgraph(topic.clone());
             println!("Created sub-graph '{}' with ID: {}", topic, id);
+            
+            // Save the subgraph file
+            if let Some(sg) = g.subgraphs.get(&id) {
+                if let Err(e) = storage.save_subgraph(sg) {
+                    error!("Failed to save subgraph: {}", e);
+                }
+            }
+            
             drop(g);
             storage.save_main_network()?;
         }
@@ -391,7 +401,7 @@ Your response should:
                         ],
                         temperature: 0.7,
                         max_tokens: Some(1024),
-                        tools: None,
+                        tools: tools.clone(), // Give Actor access to tools too
                     };
                     
                     let actor_result = provider.complete(actor_request).await;
@@ -489,6 +499,14 @@ Use upsert_node tool to add nodes and create_edge tool to connect related nodes 
                         let _ = storage.save_draft(draft);
                     }
                     
+                    // Save all subgraphs after reviewer phase
+                    for (_, subgraph) in graph.read().subgraphs.iter() {
+                        let _ = storage.save_subgraph(subgraph);
+                    }
+                    
+                    // Save main network
+                    let _ = storage.save_main_network();
+                    
                     // ============ STATS SUMMARY ============
                     if verbose {
                         println!("\n┌─────────────────────────────────────────────────────────────┐");
@@ -512,12 +530,7 @@ Use upsert_node tool to add nodes and create_edge tool to connect related nodes 
             }
         }
 
-        Commands::Chat { background } => {
-            println!("Starting chat mode (background learning={})...", background);
-            println!("Type 'exit' to quit, 'stats' to view session stats.\n");
-            
-            let mut session = ChatSession::default();
-            
+        Commands::Chat { background: _ } => {
             let llm_model = config.llm.model.clone();
             let llm_base_url = config.llm.base_url.clone();
             
@@ -544,75 +557,30 @@ Use upsert_node tool to add nodes and create_edge tool to connect related nodes 
                 model_name,
             );
 
-            loop {
-                print!("You: ");
-                std::io::Write::flush(&mut std::io::stdout()).unwrap();
-                
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input).unwrap();
-                let input = input.trim();
-                
-                if input.is_empty() {
-                    continue;
-                }
-                
-                if input == "exit" {
-                    println!("\nGoodbye! Session stats:");
-                    println!("  Total queries: {}", session.stats.total_queries);
-                    println!("  Nodes learned:  {}", session.stats.nodes_learned);
-                    println!("  Nodes read:     {}", session.stats.nodes_read);
-                    break;
-                }
-                
-                if input == "stats" {
-                    println!("\n=== Session Stats ===");
-                    println!("  Total queries: {}", session.stats.total_queries);
-                    println!("  Nodes learned:  {}", session.stats.nodes_learned);
-                    println!("  Nodes read:     {}", session.stats.nodes_read);
-                    continue;
-                }
-                
-                session.stats.total_queries += 1;
-                
-                print!("🤔 ");
-                std::io::Write::flush(&mut std::io::stdout()).unwrap();
-                
-                let response = pipeline.query(input).await;
-                println!("\rBot: {}\n", response);
-                
-                if background {
-                    pipeline.learn(input, &response);
-                } else {
-                    let result = pipeline.query_with_learn(input, &response).await;
-                    if result {
-                        session.stats.nodes_learned += 1;
-                    }
-                }
-            }
+            println!("Starting chat mode...");
+            println!("Type 'exit' to quit, 'help' for commands\n");
+            
+            let chat_ui = chat::ChatUI::new(pipeline, storage.clone());
+            let _ = chat_ui.run().await;
         }
 
         Commands::Stats => {
-            println!("\n=== Knowledge Graph Stats ===");
+            println!("\n┌─────────────────────────────────────────────┐");
+            println!("│  📊 Knowledge Graph Stats                  │");
+            println!("└─────────────────────────────────────────────┘");
             let g = graph.read();
             
-            println!("Main Network Topics: {}", g.main_network.list_topics().len());
-            for topic in g.main_network.list_topics() {
-                if let Some(sg_id) = g.main_network.find_subgraph(&topic) {
-                    if let Some(sg) = g.subgraphs.get(sg_id) {
-                        println!("  - {}: {} nodes, {} edges", topic, sg.node_count(), sg.edge_count());
-                    }
+            let subgraphs_count = g.subgraphs.len();
+            let drafts_count = g.drafts.len();
+            
+            println!("\n  📁 Subgraphs: {}", subgraphs_count);
+            if subgraphs_count > 0 {
+                for sg in g.subgraphs.values() {
+                    println!("     - {} ({} nodes)", sg.name, sg.node_count());
                 }
             }
             
-            println!("Draft Nodes: {}", g.drafts.len());
-            for node in g.drafts.values() {
-                println!("  - {} [{}]", node.label, format!("{:?}", node.tier));
-            }
-            
-            let total_nodes = g.subgraphs.values().map(|sg| sg.node_count() as u32).sum::<u32>() + g.drafts.len() as u32;
-            let total_edges = g.subgraphs.values().map(|sg| sg.edge_count() as u32).sum::<u32>();
-            println!("\nTotal nodes: {}", total_nodes);
-            println!("Total edges: {}", total_edges);
+            println!("\n  📝 Draft nodes: {}", drafts_count);
         }
     }
 

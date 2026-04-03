@@ -2,6 +2,7 @@ use crate::graph::{Edge, Graph, Node, Tier};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tool {
@@ -121,6 +122,84 @@ impl ToolRegistry {
                 ],
                 can_write: false,
             },
+            // New tools from Claude Code
+            Tool {
+                name: "glob".to_string(),
+                description: "Find files matching a glob pattern (e.g., *.rs, **/test_*.py)"
+                    .to_string(),
+                parameters: vec![
+                    ToolParameter {
+                        name: "pattern".to_string(),
+                        description: "Glob pattern to match files".to_string(),
+                        param_type: "string".to_string(),
+                        required: true,
+                    },
+                    ToolParameter {
+                        name: "path".to_string(),
+                        description: "Directory to search in".to_string(),
+                        param_type: "string".to_string(),
+                        required: false,
+                    },
+                ],
+                can_write: false,
+            },
+            Tool {
+                name: "web_search".to_string(),
+                description: "Search the web for information".to_string(),
+                parameters: vec![
+                    ToolParameter {
+                        name: "query".to_string(),
+                        description: "The search query".to_string(),
+                        param_type: "string".to_string(),
+                        required: true,
+                    },
+                    ToolParameter {
+                        name: "num_results".to_string(),
+                        description: "Number of results to return".to_string(),
+                        param_type: "number".to_string(),
+                        required: false,
+                    },
+                ],
+                can_write: false,
+            },
+            Tool {
+                name: "web_fetch".to_string(),
+                description: "Fetch content from a URL".to_string(),
+                parameters: vec![
+                    ToolParameter {
+                        name: "url".to_string(),
+                        description: "URL to fetch".to_string(),
+                        param_type: "string".to_string(),
+                        required: true,
+                    },
+                    ToolParameter {
+                        name: "format".to_string(),
+                        description: "Format to return (text, markdown, html)".to_string(),
+                        param_type: "string".to_string(),
+                        required: false,
+                    },
+                ],
+                can_write: false,
+            },
+            Tool {
+                name: "bash".to_string(),
+                description: "Execute a shell command".to_string(),
+                parameters: vec![
+                    ToolParameter {
+                        name: "command".to_string(),
+                        description: "Shell command to execute".to_string(),
+                        param_type: "string".to_string(),
+                        required: true,
+                    },
+                    ToolParameter {
+                        name: "timeout".to_string(),
+                        description: "Timeout in seconds".to_string(),
+                        param_type: "number".to_string(),
+                        required: false,
+                    },
+                ],
+                can_write: true,
+            },
         ];
 
         if write_enabled {
@@ -233,6 +312,10 @@ impl ToolRegistry {
             "read_file" => self.execute_read_file(call.arguments),
             "search_code" => self.execute_search_code(call.arguments),
             "search_subgraph" => self.execute_search_subgraph(call.arguments),
+            "glob" => self.execute_glob(call.arguments),
+            "web_search" => self.execute_web_search(call.arguments),
+            "web_fetch" => self.execute_web_fetch(call.arguments),
+            "bash" if self.write_enabled => self.execute_bash(call.arguments),
             "upsert_node" if self.write_enabled => self.execute_upsert_node(call.arguments),
             "delete_node" if self.write_enabled => self.execute_delete_node(call.arguments),
             "adjust_weight" if self.write_enabled => self.execute_adjust_weight(call.arguments),
@@ -555,18 +638,36 @@ impl ToolRegistry {
             .map(|v| crate::graph::ConfidenceScore::new(v as u8))
             .unwrap_or_default();
 
-        let mut node = Node::new(label);
+        let node = Node::new(label.clone());
+        let mut node = node.with_confidence(confidence);
         node.properties = properties;
-        let node = node.with_confidence(confidence);
 
         let mut graph = self.graph.write();
-        let id = graph.add_to_drafts(node);
+
+        // Add to drafts first
+        let draft_id = graph.add_to_drafts(node.clone());
+
+        // Also add to first subgraph if exists (or create one)
+        let subgraph_id = if graph.subgraphs.is_empty() {
+            let id = graph.create_subgraph("default".to_string());
+            info!("[TOOL] Created default subgraph for node storage: {}", id);
+            id
+        } else {
+            graph.subgraphs.keys().next().copied().unwrap()
+        };
+
+        // Add node to subgraph
+        if let Some(subgraph) = graph.subgraphs.get_mut(&subgraph_id) {
+            subgraph.add_node(node);
+            info!("[TOOL] Added node to subgraph {}: {}", subgraph_id, label);
+        }
 
         ToolResult {
             success: true,
             output: serde_json::json!({
-                "node_id": id,
-                "message": "Node created in drafts"
+                "node_id": draft_id,
+                "subgraph_id": subgraph_id,
+                "message": "Node created in drafts and added to subgraph"
             }),
             error: None,
         }
@@ -751,6 +852,272 @@ impl ToolRegistry {
                 "message": if added { "Edge created" } else { "Could not find nodes for edge" }
             }),
             error: None,
+        }
+    }
+
+    fn execute_glob(&self, args: HashMap<String, serde_json::Value>) -> ToolResult {
+        let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+
+        if pattern.is_empty() {
+            return ToolResult {
+                success: false,
+                output: serde_json::Value::Null,
+                error: Some("Pattern is required".to_string()),
+            };
+        }
+
+        let mut matches = Vec::new();
+
+        fn glob_dir(dir: &std::path::Path, pattern: &str, results: &mut Vec<String>) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+
+                    if name.starts_with('.') || name == "target" || name == "node_modules" {
+                        continue;
+                    }
+
+                    if path.is_dir() {
+                        glob_dir(&path, pattern, results);
+                    } else if let Some(ext) = path.extension() {
+                        let ext_str = ext.to_string_lossy();
+                        let file_name = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+
+                        // Simple glob matching
+                        let matches = if pattern.contains('*') {
+                            let prefix = pattern.trim_start_matches('*');
+                            let suffix = pattern.trim_end_matches('*');
+                            if pattern.starts_with('*') && pattern.ends_with('*') {
+                                file_name.contains(prefix.trim_end_matches('*'))
+                            } else if pattern.starts_with('*') {
+                                file_name.ends_with(suffix)
+                            } else if pattern.ends_with('*') {
+                                file_name.starts_with(prefix)
+                            } else {
+                                file_name == pattern
+                            }
+                        } else {
+                            file_name == pattern || ext_str == pattern
+                        };
+
+                        if matches {
+                            results.push(path.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        glob_dir(std::path::Path::new(path), pattern, &mut matches);
+
+        ToolResult {
+            success: true,
+            output: serde_json::json!({"files": matches, "count": matches.len()}),
+            error: None,
+        }
+    }
+
+    fn execute_web_search(&self, args: HashMap<String, serde_json::Value>) -> ToolResult {
+        let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let num_results = args
+            .get("num_results")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(8) as usize;
+
+        if query.is_empty() {
+            return ToolResult {
+                success: false,
+                output: serde_json::Value::Null,
+                error: Some("Query is required".to_string()),
+            };
+        }
+
+        // Use simple HTTP client for web search (simulated for now)
+        let search_url = format!(
+            "https://duckduckgo.com/html/?q={}&n={}",
+            urlencoding::encode(query),
+            num_results.min(20)
+        );
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build();
+
+        match client {
+            Ok(c) => match c
+                .get(&search_url)
+                .header("User-Agent", "Mozilla/5.0")
+                .send()
+            {
+                Ok(response) => {
+                    let body = response.text().unwrap_or_default();
+
+                    // Simple parsing to extract titles and links
+                    let mut results = Vec::new();
+                    let mut in_result = false;
+                    for line in body.lines() {
+                        if line.contains("result__a") || line.contains("result__title") {
+                            in_result = true;
+                        }
+                        if in_result && line.contains("href=\"") {
+                            if let Some(start) = line.find("href=\"") {
+                                let start = start + 6;
+                                if let Some(end) = line[start..].find('"') {
+                                    let url = &line[start..start + end];
+                                    if url.starts_with("http") && !url.contains("duckduckgo") {
+                                        results.push(serde_json::json!({
+                                            "url": url,
+                                            "title": "See result"
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                        if results.len() >= num_results {
+                            break;
+                        }
+                    }
+
+                    ToolResult {
+                        success: true,
+                        output: serde_json::json!({
+                            "results": results,
+                            "query": query,
+                            "count": results.len()
+                        }),
+                        error: None,
+                    }
+                }
+                Err(e) => ToolResult {
+                    success: false,
+                    output: serde_json::Value::Null,
+                    error: Some(format!("Web search failed: {}", e)),
+                },
+            },
+            Err(e) => ToolResult {
+                success: false,
+                output: serde_json::Value::Null,
+                error: Some(format!("Failed to create HTTP client: {}", e)),
+            },
+        }
+    }
+
+    fn execute_web_fetch(&self, args: HashMap<String, serde_json::Value>) -> ToolResult {
+        let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        let format = args
+            .get("format")
+            .and_then(|v| v.as_str())
+            .unwrap_or("text");
+
+        if url.is_empty() {
+            return ToolResult {
+                success: false,
+                output: serde_json::Value::Null,
+                error: Some("URL is required".to_string()),
+            };
+        }
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
+
+        match client {
+            Ok(c) => match c.get(url).header("User-Agent", "Mozilla/5.0").send() {
+                Ok(response) => {
+                    let content = response.text().unwrap_or_default();
+                    let content_len = content.len();
+                    let truncated = if content_len > 10000 {
+                        format!(
+                            "{}...\n(truncated {} chars)",
+                            &content[..10000],
+                            content_len - 10000
+                        )
+                    } else {
+                        content
+                    };
+
+                    ToolResult {
+                        success: true,
+                        output: serde_json::json!({
+                            "content": truncated,
+                            "format": format,
+                            "url": url,
+                            "length": content_len
+                        }),
+                        error: None,
+                    }
+                }
+                Err(e) => ToolResult {
+                    success: false,
+                    output: serde_json::Value::Null,
+                    error: Some(format!("Web fetch failed: {}", e)),
+                },
+            },
+            Err(e) => ToolResult {
+                success: false,
+                output: serde_json::Value::Null,
+                error: Some(format!("Failed to create HTTP client: {}", e)),
+            },
+        }
+    }
+
+    fn execute_bash(&self, args: HashMap<String, serde_json::Value>) -> ToolResult {
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as u64;
+
+        if command.is_empty() {
+            return ToolResult {
+                success: false,
+                output: serde_json::Value::Null,
+                error: Some("Command is required".to_string()),
+            };
+        }
+
+        use std::process::{Command, Stdio};
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+                ToolResult {
+                    success: out.status.success(),
+                    output: serde_json::json!({
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "exit_code": out.status.code(),
+                        "success": out.status.success()
+                    }),
+                    error: if !out.status.success() {
+                        Some(format!(
+                            "Command failed with exit code: {:?}",
+                            out.status.code()
+                        ))
+                    } else {
+                        None
+                    },
+                }
+            }
+            Err(e) => ToolResult {
+                success: false,
+                output: serde_json::Value::Null,
+                error: Some(format!("Failed to execute command: {}", e)),
+            },
         }
     }
 }

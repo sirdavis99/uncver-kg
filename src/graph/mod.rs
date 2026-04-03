@@ -335,6 +335,24 @@ impl Graph {
         id
     }
 
+    pub fn add_to_subgraph(&mut self, subgraph_id: Uuid, node: Node) -> Option<NodeId> {
+        if let Some(subgraph) = self.subgraphs.get_mut(&subgraph_id) {
+            let id = node.id;
+            subgraph.add_node(node);
+            Some(id)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_default_subgraph(&self) -> Option<&SubGraph> {
+        self.subgraphs.values().next()
+    }
+
+    pub fn get_default_subgraph_mut(&mut self) -> Option<&mut SubGraph> {
+        self.subgraphs.values_mut().next()
+    }
+
     pub fn promote_draft(&mut self, node_id: NodeId, subgraph_id: Uuid) -> bool {
         if let Some(node) = self.drafts.remove(&node_id) {
             if let Some(subgraph) = self.subgraphs.get_mut(&subgraph_id) {

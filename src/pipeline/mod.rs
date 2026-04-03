@@ -2,6 +2,7 @@ use crate::providers::{LLMProvider, Message, OllamaProvider};
 use crate::tools::{ToolCall, ToolRegistry};
 use crate::storage::Storage;
 use std::sync::Arc;
+use tracing::{info, debug, error};
 
 #[derive(Clone)]
 pub struct AgentPipeline {
@@ -15,6 +16,7 @@ pub struct AgentPipeline {
 impl AgentPipeline {
     pub fn new(provider: OllamaProvider, tool_registry: Arc<ToolRegistry>, storage: Storage, model: String) -> Self {
         let tools = tool_registry.tools().to_vec();
+        info!("AgentPipeline created with {} tools", tools.len());
         Self {
             provider,
             tool_registry,
@@ -25,8 +27,15 @@ impl AgentPipeline {
     }
 
     pub async fn query(&self, user_input: &str) -> String {
+        info!("[QUERY] Starting query: {}", user_input);
+        
         let context = self.research(user_input).await;
-        self.actor(user_input, &context).await
+        debug!("[QUERY] Research context: {}", context);
+        
+        let response = self.actor(user_input, &context).await;
+        
+        info!("[QUERY] Complete, response length: {}", response.len());
+        response
     }
 
     pub async fn query_with_learn(&self, user_input: &str, _response: &str) -> bool {
@@ -45,15 +54,27 @@ impl AgentPipeline {
                     arguments: tc.arguments.clone(),
                 });
             }
+            
+            // Save drafts
             for (_, draft) in graph.read().drafts.iter() {
                 let _ = storage.save_draft(draft);
             }
+            
+            // Save subgraphs
+            for (_, subgraph) in graph.read().subgraphs.iter() {
+                let _ = storage.save_subgraph(subgraph);
+            }
+            
+            // Save main_network
+            let _ = storage.save_main_network();
+            
             return true;
         }
         false
     }
 
     pub fn learn(&self, user_input: &str, response: &str) {
+        info!("Starting background learning for: {}", user_input);
         let registry = Arc::clone(&self.tool_registry);
         let storage = self.storage.clone();
         let graph = registry.graph().clone();
@@ -63,15 +84,39 @@ impl AgentPipeline {
         let resp = response.to_string();
 
         tokio::spawn(async move {
-            if let Ok(res) = Self::run_reviewer(&model, &input, &resp, &tools).await {
-                for tc in res.tool_calls.iter().flat_map(|tcs| tcs.iter()) {
-                    registry.execute(ToolCall {
-                        tool_name: tc.name.clone(),
-                        arguments: tc.arguments.clone(),
-                    });
+            info!("[LEARN] Background: Starting reviewer for async learning");
+            match Self::run_reviewer(&model, &input, &resp, &tools).await {
+                Ok(res) => {
+                    let count = res.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0);
+                    info!("[LEARN] Background: Reviewer completed, {} tool calls", count);
+                    for tc in res.tool_calls.iter().flat_map(|tcs| tcs.iter()) {
+                        debug!("[LEARN] Background: Executing tool {}: {:?}", tc.name, tc.arguments);
+                        registry.execute(ToolCall {
+                            tool_name: tc.name.clone(),
+                            arguments: tc.arguments.clone(),
+                        });
+                    }
+                    
+                    // Save drafts
+                    let drafts_count = graph.read().drafts.len();
+                    for (_, draft) in graph.read().drafts.iter() {
+                        if let Err(e) = storage.save_draft(draft) {
+                            error!("[LEARN] Background: Failed to save draft: {}", e);
+                        }
+                    }
+                    
+                    // Save any subgraphs that have been modified
+                    let subgraphs_count = graph.read().subgraphs.len();
+                    for (_, subgraph) in graph.read().subgraphs.iter() {
+                        if let Err(e) = storage.save_subgraph(subgraph) {
+                            error!("[LEARN] Background: Failed to save subgraph: {}", e);
+                        }
+                    }
+                    
+                    info!("[LEARN] Background: Learning complete, saved {} drafts, {} subgraphs", drafts_count, subgraphs_count);
                 }
-                for (_, draft) in graph.read().drafts.iter() {
-                    let _ = storage.save_draft(draft);
+                Err(e) => {
+                    error!("[LEARN] Background: Reviewer failed: {}", e);
                 }
             }
         });
