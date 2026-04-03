@@ -574,8 +574,11 @@ Use upsert_node tool to add nodes and create_edge tool to connect related nodes 
                 
                 session.stats.total_queries += 1;
                 
+                print!("🤔 ");
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                
                 let response = pipeline.query(input).await;
-                println!("Bot: {}\n", response);
+                println!("\rBot: {}\n", response);
                 
                 if background {
                     pipeline.learn(input, &response);
