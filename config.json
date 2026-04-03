@@ -1,0 +1,25 @@
+{
+  "storage": {
+    "base_path": "./data",
+    "auto_save": true
+  },
+  "llm": {
+    "provider": "ollama",
+    "model": "gemma2:2b",
+    "base_url": "http://localhost:11434",
+    "api_key": null,
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+  "agents": {
+    "enable_researcher": true,
+    "enable_actor": true,
+    "enable_reviewer": true,
+    "async_review": true,
+    "confidence_thresholds": {
+      "draft_max": 50,
+      "unverified_max": 80,
+      "gold_min": 80
+    }
+  }
+}
