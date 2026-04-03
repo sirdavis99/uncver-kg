@@ -13,6 +13,10 @@ kg-core implements a sophisticated memory system for LLMs with:
 
 ## Installation
 
+### Prerequisites
+- Rust 1.75+
+- (Optional) Ollama for LLM integration
+
 ### Via Homebrew
 ```bash
 brew install yourusername/kg-core/kg-core
