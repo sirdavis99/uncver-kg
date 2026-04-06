@@ -55,9 +55,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize a project folder with kg-data/ directory
     Init {
-        #[arg(short, long)]
+        /// Topic name for the initial subgraph
+        #[arg(short, long, default_value = "main")]
         topic: String,
+    },
+    /// Initialize current folder as an uncverkg project (creates kg-data/)
+    Project {
+        #[arg(short, long, default_value = "kg-data")]
+        folder: String,
     },
     Add {
         #[arg(short, long)]
@@ -68,6 +75,35 @@ enum Commands {
 
         #[arg(short, long)]
         confidence: Option<u8>,
+    },
+    /// Read a node by ID or label
+    Read {
+        #[arg(short, long)]
+        query: String,
+    },
+    /// Write a new fact/node
+    Write {
+        /// Subject of the fact
+        #[arg(short, long)]
+        subject: String,
+        /// Predicate/relation
+        #[arg(short, long)]
+        predicate: String,
+        /// Object of the fact
+        #[arg(short, long)]
+        object: String,
+    },
+    /// Update an existing node
+    Update {
+        /// Node ID to update
+        #[arg(short, long)]
+        id: String,
+        /// New label
+        #[arg(short, long)]
+        label: Option<String>,
+        /// JSON properties to merge
+        #[arg(short, long, default_value = "{}")]
+        properties: String,
     },
     Search {
         #[arg(short, long)]
@@ -142,6 +178,171 @@ async fn main() -> anyhow::Result<()> {
             
             drop(g);
             storage.save_main_network()?;
+        }
+
+        Commands::Project { folder } => {
+            let path = std::path::Path::new(&folder);
+            if path.exists() {
+                println!("⚠️  Folder '{}' already exists", folder);
+            } else {
+                std::fs::create_dir_all(path)?;
+                println!("✅ Created project folder: {}", folder);
+            }
+            
+            // Create kg.json config in the folder
+            let kg_config = format!(
+                r#"{{
+  "name": "{}",
+  "version": "1.0.0",
+  "kg_version": "0.1.0"
+}}"#,
+                std::path::Path::new(".").file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "project".to_string())
+            );
+            let config_path = path.join("kg.json");
+            std::fs::write(&config_path, kg_config)?;
+            println!("✅ Created kg.json config");
+            
+            // Create .kgignore
+            let kgignore = "node_ids\n*.log\n";
+            std::fs::write(path.join(".kgignore"), kgignore)?;
+            println!("✅ Created .kgignore");
+            
+            println!("\n📁 Project '{}' initialized!", folder);
+            println!("   Run 'uncverkg --data-dir {} chat' to start", folder);
+        }
+
+        Commands::Read { query } => {
+            let g = graph.read();
+            
+            // Try to find by ID first
+            if let Ok(uuid) = uuid::Uuid::parse_str(&query) {
+                // Check drafts
+                if let Some(node) = g.drafts.get(&uuid) {
+                    println!("\n📝 Node: {}", node.label);
+                    println!("   ID: {}", node.id);
+                    println!("   Tier: {:?}", node.tier);
+                    println!("   Confidence: {}", node.confidence.as_u8());
+                    println!("   Properties:");
+                    for (k, v) in &node.properties {
+                        println!("     {}: {}", k, v);
+                    }
+                    return Ok(());
+                }
+                // Check subgraphs
+                for sg in g.subgraphs.values() {
+                    if let Some(node) = sg.nodes.get(&uuid) {
+                        println!("\n📝 Node: {}", node.label);
+                        println!("   ID: {}", node.id);
+                        println!("   Tier: {:?}", node.tier);
+                        println!("   Confidence: {}", node.confidence.as_u8());
+                        println!("   Properties:");
+                        for (k, v) in &node.properties {
+                            println!("     {}: {}", k, v);
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+            
+            // Search by label
+            let results = g.search(&query, None);
+            if results.is_empty() {
+                println!("❌ No node found matching '{}'", query);
+            } else {
+                println!("\n🔍 Found {} node(s):", results.len());
+                for node in results {
+                    println!("   • {} (ID: {}, Tier: {:?})", node.label, node.id, node.tier);
+                }
+            }
+        }
+
+        Commands::Write { subject, predicate, object } => {
+            let mut node = Node::new(format!("{} --{}--> {}", subject, predicate, object));
+            node.properties.insert("subject".to_string(), serde_json::json!(subject));
+            node.properties.insert("predicate".to_string(), serde_json::json!(predicate));
+            node.properties.insert("object".to_string(), serde_json::json!(object));
+            
+            let mut g = graph.write();
+            
+            // Get or create default subgraph
+            let subgraph_id = if g.subgraphs.is_empty() {
+                g.create_subgraph("main".to_string())
+            } else {
+                g.subgraphs.keys().next().copied().unwrap()
+            };
+            
+            let node_id = g.add_to_subgraph(subgraph_id, node).unwrap_or_else(|| {
+                let n = Node::new(format!("{} --{}--> {}", subject, predicate, object));
+                g.add_to_drafts(n)
+            });
+            
+            drop(g);
+            
+            // Save
+            if let Some(sg) = graph.read().subgraphs.get(&subgraph_id) {
+                let _ = storage.save_subgraph(sg);
+            }
+            let _ = storage.save_main_network();
+            
+            println!("✅ Wrote fact: {} --{}--> {}", subject, predicate, object);
+            println!("   Node ID: {}", node_id);
+        }
+
+        Commands::Update { id, label, properties } => {
+            let uuid = match uuid::Uuid::parse_str(&id) {
+                Ok(u) => u,
+                Err(_) => {
+                    println!("❌ Invalid UUID: {}", id);
+                    return Ok(());
+                }
+            };
+            
+            let props: std::collections::HashMap<String, serde_json::Value> = 
+                serde_json::from_str(&properties).unwrap_or_default();
+            
+            let mut g = graph.write();
+            let mut updated = false;
+            let label_ref = label.as_ref();
+            
+            // Check drafts
+            if let Some(node) = g.drafts.get_mut(&uuid) {
+                if let Some(l) = label_ref {
+                    node.label = l.clone();
+                }
+                node.properties.extend(props.clone());
+                node.updated_at = chrono::Utc::now();
+                updated = true;
+            }
+            
+            // Check subgraphs
+            if !updated {
+                for sg in g.subgraphs.values_mut() {
+                    if let Some(node) = sg.nodes.get_mut(&uuid) {
+                        if let Some(l) = label_ref {
+                            node.label = l.clone();
+                        }
+                        node.properties.extend(props.clone());
+                        node.updated_at = chrono::Utc::now();
+                        updated = true;
+                        break;
+                    }
+                }
+            }
+            
+            drop(g);
+            
+            if updated {
+                // Save
+                for sg in graph.read().subgraphs.values() {
+                    let _ = storage.save_subgraph(sg);
+                }
+                let _ = storage.save_main_network();
+                println!("✅ Updated node: {}", id);
+            } else {
+                println!("❌ Node not found: {}", id);
+            }
         }
 
         Commands::Add { label, properties, confidence } => {
