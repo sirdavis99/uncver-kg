@@ -1,7 +1,8 @@
-use crate::graph::{ConfidenceScore, Edge, Graph, Node, NodeId, SubGraph, Tier};
-use crate::tools::{Tool, ToolCall, ToolRegistry};
-use async_trait::async_trait;
+use crate::graph::{ConfidenceScore, Graph, Node, NodeId, Tier};
 use std::sync::Arc;
+
+#[allow(unused_imports)]
+use crate::tools::ToolRegistry;
 
 pub trait AgentMode: Send + Sync {
     fn can_write(&self) -> bool;
@@ -177,6 +178,7 @@ impl Deduction {
 
 pub struct Agent {
     mode: Box<dyn AgentMode>,
+    #[allow(dead_code)]
     tool_registry: Arc<ToolRegistry>,
     graph: Arc<parking_lot::RwLock<Graph>>,
 }

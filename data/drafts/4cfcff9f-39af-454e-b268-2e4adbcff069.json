@@ -1,0 +1,12 @@
+{
+  "id": "4cfcff9f-39af-454e-b268-2e4adbcff069",
+  "label": "knowledge graph infrastructure",
+  "properties": {
+    "type": "technology_domain",
+    "description": "Foundational systems and libraries for building knowledge graph applications"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:29.394080Z",
+  "updated_at": "2026-04-03T15:36:29.394080Z"
+}

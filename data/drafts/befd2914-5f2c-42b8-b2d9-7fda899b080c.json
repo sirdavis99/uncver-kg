@@ -1,0 +1,12 @@
+{
+  "id": "befd2914-5f2c-42b8-b2d9-7fda899b080c",
+  "label": "User --IS_LEARNING--> TypeScript",
+  "properties": {
+    "predicate": "IS_LEARNING",
+    "object": "TypeScript"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T14:43:55.893948Z",
+  "updated_at": "2026-04-03T14:43:55.893948Z"
+}

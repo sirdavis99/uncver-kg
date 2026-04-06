@@ -1,12 +1,12 @@
 [package]
-name = "kg-core"
+name = "uncverkg"
 version = "0.1.0"
 edition = "2021"
 description = "Knowledge Graph Memory Engine - A Rust library for persistent LLM memory with 3-agent architecture"
 authors = ["David <david@buildspark.com>"]
 license = "MIT"
-repository = "https://github.com/yourusername/kg-core"
-documentation = "https://github.com/yourusername/kg-core"
+repository = "https://github.com/yourusername/uncverkg"
+documentation = "https://github.com/yourusername/uncverkg"
 readme = "README.md"
 keywords = ["knowledge-graph", "llm", "memory", "ai", "rag"]
 categories = ["artificial-intelligence", "data-structures", "algorithms"]
@@ -21,7 +21,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 clap = { version = "4.5", features = ["derive"], optional = true }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "blocking", "stream"] }
+futures = "0.3"
+urlencoding = "2.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "1.0"
@@ -31,6 +33,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 parking_lot = "0.12"
 once_cell = "1.19"
 directories = "5.0"
+dirs = "5.0"
 sha2 = "0.10"
 hex = "0.4"
 async-trait = "0.1"
@@ -41,7 +44,7 @@ tempfile = "3.8"
 mockall = "0.12"
 
 [[bin]]
-name = "kg-core"
+name = "uncverkg"
 path = "src/main.rs"
 required-features = ["cli"]
 

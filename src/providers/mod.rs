@@ -1,7 +1,8 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+
+#[allow(unused_imports)]
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMRequest {
@@ -31,11 +32,50 @@ pub struct ToolCall {
     pub arguments: HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+impl From<&crate::tools::Tool> for OllamaTool {
+    fn from(t: &crate::tools::Tool) -> Self {
+        let mut required = Vec::new();
+        let mut properties = serde_json::Map::new();
+        
+        for param in &t.parameters {
+            properties.insert(param.name.clone(), serde_json::json!({
+                "type": param.param_type,
+                "description": param.description
+            }));
+            if param.required {
+                required.push(param.name.clone());
+            }
+        }
+        
+        OllamaTool {
+            name: t.name.clone(),
+            description: t.description.clone(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": properties,
+                "required": required
+            }),
+        }
+    }
+}
+
+#[allow(async_fn_in_trait)]
 pub trait LLMProvider: Send + Sync {
     fn name(&self) -> &str;
     fn model(&self) -> &str;
     
     async fn complete(&self, request: LLMRequest) -> Result<LLMResponse, ProviderError>;
+    
+    async fn complete_streaming<F>(&self, request: LLMRequest, on_chunk: F) -> Result<LLMResponse, ProviderError>
+    where
+        F: Fn(String, Option<Vec<ToolCall>>) + Send + Sync + 'static;
     
     async fn extract_deductions(
         &self,
@@ -82,6 +122,7 @@ impl std::fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
+#[derive(Clone)]
 pub struct OllamaProvider {
     base_url: String,
     model: String,
@@ -100,6 +141,49 @@ impl OllamaProvider {
     pub fn default_model(model: impl Into<String>) -> Self {
         Self::new("http://localhost:11434", model)
     }
+
+    fn parse_streaming_response_with_tools(&self, body: &str) -> Result<(String, Option<Vec<ToolCall>>), ProviderError> {
+        let mut final_content = String::new();
+        let mut tool_calls = None;
+        
+        for line in body.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(chunk) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(content) = chunk["message"]["content"].as_str() {
+                    if !content.is_empty() {
+                        final_content.push_str(content);
+                    }
+                }
+                
+                if let Some(tc_array) = chunk["message"]["tool_calls"].as_array() {
+                    let calls: Vec<ToolCall> = tc_array.iter()
+                        .filter_map(|tc| {
+                            let name = tc["function"]["name"].as_str()?.to_string();
+                            
+                            let args: HashMap<String, serde_json::Value> = if let Some(args_obj) = tc["function"]["arguments"].as_object() {
+                                args_obj.iter()
+                                    .map(|(k, v)| (k.clone(), v.clone()))
+                                    .collect()
+                            } else if let Some(args_str) = tc["function"]["arguments"].as_str() {
+                                serde_json::from_str(args_str).ok().unwrap_or_default()
+                            } else {
+                                HashMap::new()
+                            };
+                            
+                            Some(ToolCall { name, arguments: args })
+                        })
+                        .collect();
+                    if !calls.is_empty() {
+                        tool_calls = Some(calls);
+                    }
+                }
+            }
+        }
+        
+        Ok((final_content, tool_calls))
+    }
 }
 
 impl LLMProvider for OllamaProvider {
@@ -114,12 +198,23 @@ impl LLMProvider for OllamaProvider {
     async fn complete(&self, request: LLMRequest) -> Result<LLMResponse, ProviderError> {
         let url = format!("{}/api/chat", self.base_url);
         
+        let tools: Option<Vec<serde_json::Value>> = request.tools.as_ref().map(|t| {
+            t.iter().map(|tool| {
+                let ollama_tool: OllamaTool = tool.into();
+                serde_json::json!({
+                    "type": "function",
+                    "function": ollama_tool
+                })
+            }).collect()
+        });
+        
         let ollama_request: serde_json::Value = serde_json::json!({
             "model": request.model,
             "messages": request.messages,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens.unwrap_or(4096),
-            "tools": request.tools
+            "tools": tools,
+            "think": false
         });
 
         let response = self.client
@@ -135,40 +230,117 @@ impl LLMProvider for OllamaProvider {
                 response.status()
             )));
         }
-
-        let ollama_response: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
-
-        let content = ollama_response["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-
-        let tool_calls = ollama_response["message"]["tool_calls"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|tc| {
-                        let name = tc["function"]["name"].as_str()?.to_string();
-                        let args_str = tc["function"]["arguments"].as_str()?;
-                        let arguments: HashMap<String, serde_json::Value> = 
-                            serde_json::from_str(args_str).ok()?;
-                        Some(ToolCall { name, arguments })
-                    })
-                    .collect()
-            });
-
-        let finish_reason = ollama_response["message"]["finish_reason"]
-            .as_str()
-            .unwrap_or("stop")
-            .to_string();
+        
+        let body = response.text().await.map_err(|e| ProviderError::Parse(e.to_string()))?;
+        
+        let (content, tool_calls) = self.parse_streaming_response_with_tools(&body)?;
 
         Ok(LLMResponse {
             content,
             tool_calls,
-            finish_reason,
+            finish_reason: "stop".to_string(),
+        })
+    }
+
+    async fn complete_streaming<F>(&self, request: LLMRequest, on_chunk: F) -> Result<LLMResponse, ProviderError>
+    where
+        F: Fn(String, Option<Vec<ToolCall>>) + Send + Sync + 'static,
+    {
+        let url = format!("{}/api/chat", self.base_url);
+        
+        let tools: Option<Vec<serde_json::Value>> = request.tools.as_ref().map(|t| {
+            t.iter().map(|tool| {
+                let ollama_tool: OllamaTool = tool.into();
+                serde_json::json!({
+                    "type": "function",
+                    "function": ollama_tool
+                })
+            }).collect()
+        });
+        
+        let ollama_request: serde_json::Value = serde_json::json!({
+            "model": request.model,
+            "messages": request.messages,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens.unwrap_or(4096),
+            "tools": tools,
+            "stream": true
+        });
+        
+        let mut final_content = String::new();
+        let mut tool_calls: Option<Vec<ToolCall>> = None;
+        
+        let response = self.client
+            .post(&url)
+            .json(&ollama_request)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+        
+        if !response.status().is_success() {
+            return Err(ProviderError::Other(format!(
+                "HTTP error: {}",
+                response.status()
+            )));
+        }
+        
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+        
+        use futures::stream::StreamExt;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| ProviderError::Network(e.to_string()))?;
+            if let Ok(text) = String::from_utf8(chunk.to_vec()) {
+                buffer.push_str(&text);
+                
+                while let Some(newline_idx) = buffer.find('\n') {
+                    let line = buffer[..newline_idx].to_string();
+                    buffer = buffer[newline_idx + 1..].to_string();
+                    
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    
+                if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(content) = chunk_json["message"]["content"].as_str() {
+                        if !content.is_empty() {
+                            final_content.push_str(content);
+                            // Only pass the NEW content, not the accumulated
+                            on_chunk(content.to_string(), None);
+                        }
+                    }
+
+                    if let Some(tc_array) = chunk_json["message"]["tool_calls"].as_array() {
+                        let calls: Vec<ToolCall> = tc_array.iter()
+                            .filter_map(|tc| {
+                                let name = tc["function"]["name"].as_str()?.to_string();
+
+                                let args: HashMap<String, serde_json::Value> = if let Some(args_obj) = tc["function"]["arguments"].as_object() {
+                                    args_obj.iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect()
+                                } else if let Some(args_str) = tc["function"]["arguments"].as_str() {
+                                    serde_json::from_str(args_str).ok().unwrap_or_default()
+                                } else {
+                                    HashMap::new()
+                                };
+
+                                Some(ToolCall { name, arguments: args })
+                            })
+                            .collect();
+                        if !calls.is_empty() {
+                            tool_calls = Some(calls);
+                        }
+                    }
+                }
+                }
+            }
+        }
+        
+        Ok(LLMResponse {
+            content: final_content,
+            tool_calls,
+            finish_reason: "stop".to_string(),
         })
     }
 
@@ -215,9 +387,17 @@ Conversation:
         
         let content = response.content.trim();
         
-        let deductions: Vec<Deduction> = serde_json::from_str(content)
+        let json_start = content.find('[').unwrap_or(content.len());
+        let json_end = content.rfind(']').map_or(content.len(), |i| i + 1);
+        let json_str = &content[json_start..json_end];
+        
+        if json_str.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        let deductions: Vec<Deduction> = serde_json::from_str(json_str)
             .or_else(|_| {
-                serde_json::from_str(&format!("[{}]", content))
+                serde_json::from_str(&format!("[{}]", json_str))
             })
             .unwrap_or_default();
 
@@ -358,6 +538,13 @@ impl LLMProvider for ProgrammaticProvider {
 
     async fn complete(&self, _request: LLMRequest) -> Result<LLMResponse, ProviderError> {
         Err(ProviderError::Other("Programmatic provider does not support completion".to_string()))
+    }
+
+    async fn complete_streaming<F>(&self, _request: LLMRequest, _on_chunk: F) -> Result<LLMResponse, ProviderError>
+    where
+        F: Fn(String, Option<Vec<ToolCall>>) + Send + Sync + 'static,
+    {
+        Err(ProviderError::Other("Programmatic provider does not support streaming".to_string()))
     }
 
     async fn extract_deductions(

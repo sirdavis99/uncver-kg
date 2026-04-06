@@ -1,0 +1,12 @@
+{
+  "id": "7ad1c44f-c9a1-485f-b809-0909ba7377e2",
+  "label": "AI Assistant",
+  "properties": {
+    "description": "Artificial intelligence assistant running in a sandboxed environment",
+    "type": "concept"
+  },
+  "confidence": 90,
+  "tier": "gold",
+  "created_at": "2026-04-03T15:58:07.990834Z",
+  "updated_at": "2026-04-03T15:58:07.990834Z"
+}

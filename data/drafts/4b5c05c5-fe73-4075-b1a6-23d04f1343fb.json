@@ -1,0 +1,18 @@
+{
+  "id": "4b5c05c5-fe73-4075-b1a6-23d04f1343fb",
+  "label": "Extraction Agent",
+  "properties": {
+    "output": "Raw candidate facts or assertions with confidence scores",
+    "responsibilities": [
+      "Named Entity Recognition",
+      "Relation extraction",
+      "Event extraction",
+      "Triplet generation"
+    ],
+    "description": "Identifies and extracts structured information from unstructured data"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:09.369356Z",
+  "updated_at": "2026-04-03T15:36:09.369356Z"
+}

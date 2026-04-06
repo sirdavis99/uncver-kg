@@ -1,0 +1,12 @@
+{
+  "id": "00906573-e033-4db2-b881-2a5093f50514",
+  "label": "continuous knowledge graph construction",
+  "properties": {
+    "description": "Systems where the KG evolves over time as new information becomes available",
+    "related_to": "3-agent architecture"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:09.369372Z",
+  "updated_at": "2026-04-03T15:36:09.369372Z"
+}

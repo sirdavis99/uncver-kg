@@ -1,0 +1,12 @@
+{
+  "id": "65ae802c-70ab-499f-b360-b7d78a7e8659",
+  "label": "kg-core",
+  "properties": {
+    "context": "Initial discussion about kg-core, appears to be a technology/project",
+    "description": "A topic/concept that was asked about by the user"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:29:25.084455Z",
+  "updated_at": "2026-04-03T15:29:25.084455Z"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "17df4fa9-147d-4644-8d51-b3e1748aa992",
+  "label": "Integration Agent",
+  "properties": {
+    "output": "Updated Knowledge Graph",
+    "description": "Incorporates validated knowledge into the knowledge graph",
+    "responsibilities": [
+      "Merging new facts",
+      "Conflict resolution",
+      "Schema alignment",
+      "Ontology management",
+      "Version control",
+      "Provenance tracking",
+      "Indexing"
+    ]
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:09.369367Z",
+  "updated_at": "2026-04-03T15:36:09.369367Z"
+}

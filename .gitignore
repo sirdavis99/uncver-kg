@@ -1,1 +1,22 @@
+# Build output
 /target
+*.exe
+
+# Local data (knowledge graph)
+/data/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+uncver-kg-kg

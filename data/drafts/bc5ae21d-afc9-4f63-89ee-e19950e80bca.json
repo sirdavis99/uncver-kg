@@ -1,0 +1,19 @@
+{
+  "id": "bc5ae21d-afc9-4f63-89ee-e19950e80bca",
+  "label": "Validation Agent",
+  "properties": {
+    "description": "Checks quality and correctness of extracted information",
+    "responsibilities": [
+      "Fact verification",
+      "Consistency checking",
+      "Conflict detection",
+      "Trustworthiness scoring",
+      "Deduplication"
+    ],
+    "output": "Validated or rejected facts with quality metrics"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:36:09.369361Z",
+  "updated_at": "2026-04-03T15:36:09.369361Z"
+}

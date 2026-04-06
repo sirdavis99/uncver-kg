@@ -1,0 +1,13 @@
+{
+  "id": "860d936e-8109-4798-a82b-7da9acc8aaaf",
+  "label": "Sandboxed Environment",
+  "properties": {
+    "description_limitations": "Prevents access to local file system, terminal sessions, and environment variables",
+    "type": "concept",
+    "description": "An isolated execution environment with restricted access to system resources"
+  },
+  "confidence": 90,
+  "tier": "gold",
+  "created_at": "2026-04-03T15:58:07.990919Z",
+  "updated_at": "2026-04-03T15:58:07.990919Z"
+}

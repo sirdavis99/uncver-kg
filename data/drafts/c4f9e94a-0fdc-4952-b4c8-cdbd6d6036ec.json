@@ -1,0 +1,13 @@
+{
+  "id": "c4f9e94a-0fdc-4952-b4c8-cdbd6d6036ec",
+  "label": "Researcher",
+  "properties": {
+    "type": "agent_role",
+    "description": "Agent role in kg-core 3-agent architecture responsible for knowledge discovery",
+    "architecture": "3-agent"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:24:12.045794Z",
+  "updated_at": "2026-04-03T15:24:12.045794Z"
+}

@@ -67,7 +67,7 @@ jobs:
         run: cargo build --release --verbose
 
       - name: Build Docker image
-        run: docker build -t kg-core:${{ github.sha }} .
+        run: docker build -t uncverkg:${{ github.sha }} .
 
   publish:
     name: Publish to crates.io

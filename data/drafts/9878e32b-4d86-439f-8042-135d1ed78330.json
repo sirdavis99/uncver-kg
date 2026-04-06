@@ -1,0 +1,12 @@
+{
+  "id": "9878e32b-4d86-439f-8042-135d1ed78330",
+  "label": "kg-core project",
+  "properties": {
+    "description": "A project that User is working on",
+    "type": "project"
+  },
+  "confidence": 70,
+  "tier": "unverified",
+  "created_at": "2026-04-03T15:32:19.231893Z",
+  "updated_at": "2026-04-03T15:32:19.231893Z"
+}
