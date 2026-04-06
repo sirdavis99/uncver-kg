@@ -55,15 +55,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize a project folder with kg-data/ directory
+    /// Initialize current directory as an uncverkg project
     Init {
-        /// Topic name for the initial subgraph
-        #[arg(short, long, default_value = "main")]
-        topic: String,
+        /// Data directory name (unique per project)
+        #[arg(short, long, default_value = "")]
+        data_dir: String,
     },
-    /// Initialize current folder as an uncverkg project (creates kg-data/)
+    /// Create a new project folder
     Project {
-        #[arg(short, long, default_value = "kg-data")]
+        #[arg(short, long)]
         folder: String,
     },
     Add {
@@ -187,20 +187,120 @@ async fn main() -> anyhow::Result<()> {
     let graph = storage.graph();
 
     match cli.command {
-        Commands::Init { topic } => {
-            let mut g = graph.write();
-            let id = g.create_subgraph(topic.clone());
-            println!("Created sub-graph '{}' with ID: {}", topic, id);
+        Commands::Init { data_dir } => {
+            let cwd = std::env::current_dir()
+                .map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
+                .unwrap_or_default();
             
-            // Save the subgraph file
-            if let Some(sg) = g.subgraphs.get(&id) {
-                if let Err(e) = storage.save_subgraph(sg) {
-                    error!("Failed to save subgraph: {}", e);
-                }
+            let data_dir_name = if data_dir.is_empty() {
+                format!("{}-kg", cwd)
+            } else {
+                data_dir
+            };
+            
+            // Create kg.json in current directory
+            let kg_config = format!(
+                r#"{{
+  "name": "{}",
+  "version": "1.0.0",
+  "kg_version": "0.1.0",
+  "data_dir": "{}"
+}}"#,
+                cwd, data_dir_name
+            );
+            
+            let kg_path = std::path::Path::new("kg.json");
+            if kg_path.exists() {
+                println!("⚠️  kg.json already exists. Skipping.");
+            } else {
+                std::fs::write(kg_path, kg_config)?;
+                println!("✅ Created kg.json (data_dir: {})", data_dir_name);
             }
             
-            drop(g);
-            storage.save_main_network()?;
+            // Create .gitignore or update (append data_dir)
+            let gitignore_path = std::path::Path::new(".gitignore");
+            let gitignore_content = format!("{}\n", data_dir_name);
+            if gitignore_path.exists() {
+                let existing = std::fs::read_to_string(gitignore_path)?;
+                if !existing.contains(&data_dir_name) {
+                    std::fs::write(gitignore_path, format!("{}\n{}", existing.trim(), gitignore_content))?;
+                }
+            } else {
+                std::fs::write(gitignore_path, format!("{}\n", gitignore_content))?;
+            }
+            println!("✅ Updated .gitignore (excludes {})", data_dir_name);
+            
+            // Create facts/ directory
+            std::fs::create_dir_all("facts")?;
+            println!("✅ Created facts/ directory");
+            
+            // Create SKILL.md
+            let skill_content = format!(r#"# uncverkg Skill
+
+## Purpose
+Use this skill when you need to manage project knowledge using the uncverkg knowledge graph engine.
+
+## Setup
+- The project has `kg.json` in the root - uncverkg auto-detects this
+- Knowledge is stored in `{}/` (unique per project, gitignored)
+
+## Commands
+
+### Write a fact
+```bash
+uncverkg write --subject "Subject" --predicate "RELATION" --object "Object"
+```
+
+### Bulk write from JSON file
+```bash
+uncverkg bulk --file facts/my-facts.json
+```
+
+### Read/search nodes
+```bash
+uncverkg read --query "search term"
+```
+
+### Update a node
+```bash
+uncverkg update --id "UUID" --label "New Label"
+```
+
+### Start interactive chat with context
+```bash
+uncverkg chat
+```
+
+## Knowledge Graph Standard
+
+### Node Format
+Nodes are stored as facts: `Subject --PREDICATE--> Object`
+
+### Properties
+- `subject`: The entity being described
+- `predicate`: The relationship/action
+- `object`: The target of the relationship
+
+### Example
+```json
+{{"subject": "David", "predicate": "WORKS_ON", "object": "Rust"}}
+```
+
+## When to Use
+- User shares information about themselves or their project
+- Learning new facts about code, architecture, or decisions
+- Tracking project context across sessions
+- Storing user preferences or settings
+"#, data_dir_name);
+            
+            let skill_path = std::path::Path::new("SKILL.md");
+            if !skill_path.exists() {
+                std::fs::write(skill_path, skill_content)?;
+                println!("✅ Created SKILL.md");
+            }
+            
+            println!("\n✅ Initialized uncverkg in current directory!");
+            println!("   Data stored in: {}/", data_dir_name);
         }
 
         Commands::Project { folder } => {
@@ -399,8 +499,9 @@ Nodes are stored as facts: `Subject --PREDICATE--> Object`
             }
             let _ = storage.save_main_network();
             
-            println!("✅ Wrote fact: {} --{}--> {}", subject, predicate, object);
+            println!("✅ Wrote: {} --{}--> {}", subject, predicate, object);
             println!("   Node ID: {}", node_id);
+            println!("   💡 Learning happens automatically in background");
         }
 
         Commands::Bulk { file } => {
@@ -459,6 +560,7 @@ Nodes are stored as facts: `Subject --PREDICATE--> Object`
             let _ = storage.save_main_network();
             
             println!("✅ Wrote {} facts", written);
+            println!("   💡 Learning happens automatically in background");
         }
 
         Commands::Update { id, label, properties } => {
