@@ -189,7 +189,7 @@ Your response should:
             .unwrap_or_else(|_| "I couldn't generate a response.".to_string())
     }
 
-    pub async fn query_streaming<F>(&self, user_input: &str, mut on_chunk: F) -> String
+    pub async fn query_streaming<F>(&self, user_input: &str, on_chunk: F) -> String
     where
         F: FnMut(String, Option<Vec<ProviderToolCall>>) + Send + 'static,
     {

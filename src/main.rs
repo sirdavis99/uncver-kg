@@ -2,7 +2,6 @@ use clap::{Parser, Subcommand};
 use kg_core::*;
 use std::sync::Arc;
 use std::collections::VecDeque;
-use tracing::{info, error};
 
 #[derive(Default)]
 struct RunStats {
@@ -18,21 +17,21 @@ struct RunStats {
 }
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct ChatSession {
-    #[allow(dead_code)]
     history: VecDeque<ChatMessage>,
     stats: SessionStats,
 }
 
 #[derive(Default, Clone)]
+#[allow(dead_code)]
 struct ChatMessage {
-    #[allow(dead_code)]
     role: String,
-    #[allow(dead_code)]
     content: String,
 }
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct SessionStats {
     total_queries: u32,
     nodes_learned: u32,
@@ -60,6 +59,9 @@ enum Commands {
         /// Data directory name (unique per project)
         #[arg(short, long, default_value = "")]
         data_dir: String,
+        /// Initialize global knowledge graph (~/.uncverkg/)
+        #[arg(short, long, default_value = "false")]
+        global: bool,
     },
     /// Create a new project folder
     Project {
@@ -98,6 +100,9 @@ enum Commands {
         /// JSON file or inline JSON with facts array
         #[arg(short, long, default_value = "facts.json")]
         file: String,
+        /// Write to global knowledge graph (~/.uncverkg/)
+        #[arg(short, long, default_value = "false")]
+        global: bool,
     },
     /// Update an existing node
     Update {
@@ -187,7 +192,29 @@ async fn main() -> anyhow::Result<()> {
     let graph = storage.graph();
 
     match cli.command {
-        Commands::Init { data_dir } => {
+        Commands::Init { data_dir, global } => {
+            if global {
+                // Initialize global knowledge graph
+                let global_path = Storage::global_base_path();
+                
+                if global_path.exists() && Storage::global_exists() {
+                    println!("⚠️  Global knowledge graph already exists at {:?}", global_path);
+                } else {
+                    std::fs::create_dir_all(&global_path)?;
+                    std::fs::create_dir_all(global_path.join("subgraphs"))?;
+                    std::fs::create_dir_all(global_path.join("drafts"))?;
+                    std::fs::create_dir_all(global_path.join("facts"))?;
+                    
+                    let graph = Graph::new();
+                    let main_network_json = serde_json::to_string_pretty(&graph.main_network)?;
+                    std::fs::write(global_path.join("main_network.json"), main_network_json)?;
+                    
+                    println!("✅ Created global knowledge graph at {:?}", global_path);
+                    println!("   💡 Add facts to {}/facts/ and use 'uncverkg bulk --global' to load", global_path.display());
+                }
+                return Ok(());
+            }
+            
             let cwd = std::env::current_dir()
                 .map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
                 .unwrap_or_default();
@@ -221,12 +248,12 @@ async fn main() -> anyhow::Result<()> {
             let gitignore_path = std::path::Path::new(".gitignore");
             let gitignore_content = format!("{}\n", data_dir_name);
             if gitignore_path.exists() {
-                let existing = std::fs::read_to_string(gitignore_path)?;
+                let existing = std::fs::read_to_string(&gitignore_path)?;
                 if !existing.contains(&data_dir_name) {
-                    std::fs::write(gitignore_path, format!("{}\n{}", existing.trim(), gitignore_content))?;
+                    std::fs::write(&gitignore_path, format!("{}\n{}", existing.trim(), gitignore_content))?;
                 }
             } else {
-                std::fs::write(gitignore_path, format!("{}\n", gitignore_content))?;
+                std::fs::write(&gitignore_path, format!("{}\n", gitignore_content))?;
             }
             println!("✅ Updated .gitignore (excludes {})", data_dir_name);
             
@@ -506,12 +533,27 @@ Nodes are stored as facts: `Subject --PREDICATE--> Object`
             println!("   💡 Learning happens automatically in background");
         }
 
-        Commands::Bulk { file } => {
+        Commands::Bulk { file, global } => {
+            // Determine target storage
+            let (target_storage, target_name) = if global {
+                let global_path = Storage::global_base_path();
+                if !global_path.exists() {
+                    std::fs::create_dir_all(&global_path)?;
+                    std::fs::create_dir_all(global_path.join("subgraphs"))?;
+                    std::fs::create_dir_all(global_path.join("drafts"))?;
+                    std::fs::create_dir_all(global_path.join("facts"))?;
+                }
+                let global_storage = Storage::new(&global_path)?;
+                (global_storage, "~/.uncverkg".to_string())
+            } else {
+                (storage.clone(), format!("{}/", data_dir.display()))
+            };
+            
             // Try direct path first, then data_dir/facts/
             let file_path = if std::path::Path::new(&file).exists() {
                 file.clone()
             } else {
-                format!("{}/facts/{}", data_dir.display(), file)
+                format!("{}/facts/{}", target_storage.base_path().display(), file)
             };
             
             let json_content = if std::path::Path::new(&file_path).exists() {
@@ -541,7 +583,8 @@ Nodes are stored as facts: `Subject --PREDICATE--> Object`
                 return Ok(());
             };
             
-            let mut g = graph.write();
+            let target_graph = target_storage.graph();
+            let mut g = target_graph.write();
             let subgraph_id = if g.subgraphs.is_empty() {
                 g.create_subgraph("main".to_string())
             } else {
@@ -562,13 +605,15 @@ Nodes are stored as facts: `Subject --PREDICATE--> Object`
             drop(g);
             
             // Save
-            if let Some(sg) = graph.read().subgraphs.get(&subgraph_id) {
-                let _ = storage.save_subgraph(sg);
+            if let Some(sg) = target_graph.read().subgraphs.get(&subgraph_id) {
+                let _ = target_storage.save_subgraph(sg);
             }
-            let _ = storage.save_main_network();
+            let _ = target_storage.save_main_network();
             
-            println!("✅ Wrote {} facts", written);
-            println!("   💡 Learning happens automatically in background");
+            println!("✅ Wrote {} facts to {}", written, target_name);
+            if !global {
+                println!("   💡 Learning happens automatically in background");
+            }
         }
 
         Commands::Update { id, label, properties } => {
@@ -655,10 +700,21 @@ Nodes are stored as facts: `Subject --PREDICATE--> Object`
             });
 
             let g = graph.read();
-            let results = g.search(&query, tier_filter);
+            let mut results: Vec<_> = g.search(&query, tier_filter).into_iter().cloned().collect();
+            
+            // Hierarchical fallback: check global storage if project search is empty
+            if results.is_empty() && Storage::global_exists() {
+                if let Some(global_graph) = Storage::load_global_graph() {
+                    let global_results = global_graph.search(&query, tier_filter);
+                    results.extend(global_results.into_iter().cloned());
+                    if !results.is_empty() {
+                        println!("🔄 [Global fallback] Found {} node(s) from ~/.uncverkg/", results.len());
+                    }
+                }
+            }
             
             println!("Found {} nodes:", results.len());
-            for node in results {
+            for node in &results {
                 println!(
                     "  - {} [{}] (confidence: {})",
                     node.label,
@@ -1050,19 +1106,39 @@ Use upsert_node tool to add nodes and create_edge tool to connect related nodes 
             println!("\n┌─────────────────────────────────────────────┐");
             println!("│  📊 Knowledge Graph Stats                  │");
             println!("└─────────────────────────────────────────────┘");
-            let g = graph.read();
             
+            let g = graph.read();
             let subgraphs_count = g.subgraphs.len();
             let drafts_count = g.drafts.len();
+            let project_nodes: usize = g.subgraphs.values().map(|sg| sg.node_count()).sum();
             
-            println!("\n  📁 Subgraphs: {}", subgraphs_count);
+            println!("\n  📂 Project: {}", data_dir.display());
+            println!("  📁 Subgraphs: {}", subgraphs_count);
             if subgraphs_count > 0 {
                 for sg in g.subgraphs.values() {
                     println!("     - {} ({} nodes)", sg.name, sg.node_count());
                 }
             }
+            println!("  📝 Project nodes: {}", project_nodes);
+            println!("  📝 Draft nodes: {}", drafts_count);
             
-            println!("\n  📝 Draft nodes: {}", drafts_count);
+            // Auto-fallback to global if exists
+            let global_path = Storage::global_base_path();
+            if let Some(global_graph) = Storage::load_global_graph() {
+                let global_subgraphs = global_graph.subgraphs.len();
+                let global_nodes: usize = global_graph.subgraphs.values().map(|sg| sg.node_count()).sum();
+                let global_drafts = global_graph.drafts.len();
+                
+                println!("\n  🌐 Global: {:?}", global_path);
+                println!("  📁 Subgraphs: {}", global_subgraphs);
+                if global_subgraphs > 0 {
+                    for sg in global_graph.subgraphs.values() {
+                        println!("     - {} ({} nodes)", sg.name, sg.node_count());
+                    }
+                }
+                println!("  📝 Global nodes: {}", global_nodes);
+                println!("  📝 Global drafts: {}", global_drafts);
+            }
         }
     }
 

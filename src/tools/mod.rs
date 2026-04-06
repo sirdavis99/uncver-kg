@@ -1071,7 +1071,7 @@ impl ToolRegistry {
 
     fn execute_bash(&self, args: HashMap<String, serde_json::Value>) -> ToolResult {
         let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-        let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as u64;
+        let _timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as u64;
 
         if command.is_empty() {
             return ToolResult {

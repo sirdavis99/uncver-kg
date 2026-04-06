@@ -3,6 +3,7 @@ use crate::storage::Storage;
 
 pub struct ChatUI {
     pipeline: AgentPipeline,
+    #[allow(dead_code)]
     storage: Storage,
 }
 

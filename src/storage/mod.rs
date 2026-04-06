@@ -171,6 +171,48 @@ impl Storage {
     pub fn base_path(&self) -> &Path {
         &self.base_path
     }
+
+    pub fn global_base_path() -> PathBuf {
+        dirs::home_dir()
+            .map(|h| h.join(".uncverkg"))
+            .unwrap_or_else(|| PathBuf::from(".uncverkg"))
+    }
+
+    pub fn global_exists() -> bool {
+        Self::global_base_path().join("main_network.json").exists()
+    }
+
+    pub fn load_global_graph() -> Option<Graph> {
+        let global_path = Self::global_base_path();
+        if !global_path.exists() {
+            return None;
+        }
+
+        let main_network_path = global_path.join("main_network.json");
+        if !main_network_path.exists() {
+            return None;
+        }
+
+        let main_network: MainNetwork =
+            serde_json::from_str(&std::fs::read_to_string(&main_network_path).ok()?).ok()?;
+
+        let mut graph = Graph::new();
+        graph.main_network = main_network;
+
+        let subgraphs_dir = global_path.join("subgraphs");
+        if subgraphs_dir.exists() {
+            for entry in std::fs::read_dir(subgraphs_dir).ok()? {
+                let entry = entry.ok()?;
+                if entry.path().extension().map_or(false, |e| e == "json") {
+                    let subgraph: SubGraph =
+                        serde_json::from_str(&std::fs::read_to_string(entry.path()).ok()?).ok()?;
+                    graph.subgraphs.insert(subgraph.id, subgraph);
+                }
+            }
+        }
+
+        Some(graph)
+    }
 }
 
 #[cfg(test)]
