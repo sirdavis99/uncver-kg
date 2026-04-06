@@ -93,6 +93,12 @@ enum Commands {
         #[arg(short, long)]
         object: String,
     },
+    /// Bulk write facts from JSON
+    Bulk {
+        /// JSON file or inline JSON with facts array
+        #[arg(short, long, default_value = "facts.json")]
+        file: String,
+    },
     /// Update an existing node
     Update {
         /// Node ID to update
@@ -156,6 +162,23 @@ async fn main() -> anyhow::Result<()> {
 
     let data_dir = if !cli.data_dir.is_empty() {
         std::path::PathBuf::from(&cli.data_dir)
+    } else if std::path::Path::new("kg.json").exists() {
+        // Auto-detect: read data_dir from kg.json
+        if let Ok(content) = std::fs::read_to_string("kg.json") {
+            if let Ok(kg_config) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(data_dir) = kg_config.get("data_dir").and_then(|v| v.as_str()) {
+                    std::path::PathBuf::from(data_dir)
+                } else {
+                    std::path::PathBuf::from(".") // fallback
+                }
+            } else {
+                std::path::PathBuf::from(".")
+            }
+        } else {
+            std::path::PathBuf::from(".")
+        }
+    } else if std::path::Path::new("config.json").exists() {
+        Config::from_file("config.json")?.storage.base_path.clone()
     } else {
         config.storage.base_path.clone()
     };
@@ -182,6 +205,13 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::Project { folder } => {
             let path = std::path::Path::new(&folder);
+            let project_name = path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| folder.clone());
+            
+            // Data directory is unique per project: {project}-kg/
+            let data_dir = format!("{}-kg", project_name);
+            
             if path.exists() {
                 println!("⚠️  Folder '{}' already exists", folder);
             } else {
@@ -189,28 +219,111 @@ async fn main() -> anyhow::Result<()> {
                 println!("✅ Created project folder: {}", folder);
             }
             
-            // Create kg.json config in the folder
+            // Create kg.json config in the folder (references the data directory)
             let kg_config = format!(
                 r#"{{
   "name": "{}",
   "version": "1.0.0",
-  "kg_version": "0.1.0"
+  "kg_version": "0.1.0",
+  "data_dir": "{}"
 }}"#,
-                std::path::Path::new(".").file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "project".to_string())
+                project_name, data_dir
             );
             let config_path = path.join("kg.json");
             std::fs::write(&config_path, kg_config)?;
-            println!("✅ Created kg.json config");
+            println!("✅ Created kg.json config (data_dir: {})", data_dir);
             
-            // Create .kgignore
-            let kgignore = "node_ids\n*.log\n";
-            std::fs::write(path.join(".kgignore"), kgignore)?;
-            println!("✅ Created .kgignore");
+            // Create .gitignore (or update) to exclude the data directory
+            let gitignore_path = path.join(".gitignore");
+            let gitignore_content = format!("{}\n", data_dir);
+            if gitignore_path.exists() {
+                let existing = std::fs::read_to_string(&gitignore_path)?;
+                if !existing.contains(&data_dir) {
+                    std::fs::write(&gitignore_path, format!("{}\n{}", existing.trim(), gitignore_content))?;
+                }
+            } else {
+                std::fs::write(&gitignore_path, gitignore_content)?;
+            }
+            println!("✅ Updated .gitignore (excludes {})", data_dir);
+            
+            // Create facts/ directory
+            std::fs::create_dir_all(path.join("facts"))?;
+            println!("✅ Created facts/ directory");
+            
+            // Create example facts file
+            let example_facts = format!(r#"{{
+  "facts": [
+    {{"subject": "{}", "predicate": "IS_A", "object": "Project"}},
+    {{"subject": "{}", "predicate": "BUILT_WITH", "object": "Language/Framework"}}
+  ]
+}}"#, project_name, project_name);
+            std::fs::write(path.join("facts").join("example.json"), example_facts)?;
+            println!("✅ Created facts/example.json");
+            
+            // Create skill file for AI agents
+            let skill_content = format!(r#"# uncverkg Skill
+
+## Purpose
+Use this skill when you need to manage project knowledge using the uncverkg knowledge graph engine.
+
+## Setup
+- The project has `kg.json` in the root - uncverkg auto-detects this
+- Knowledge is stored in `{}/` (unique per project, gitignored by default)
+
+## Commands
+
+### Write a fact
+```bash
+uncverkg write --subject "Subject" --predicate "RELATION" --object "Object"
+```
+
+### Bulk write from JSON file
+```bash
+uncverkg bulk --file facts/my-facts.json
+```
+
+### Read/search nodes
+```bash
+uncverkg read --query "search term"
+```
+
+### Update a node
+```bash
+uncverkg update --id "UUID" --label "New Label"
+```
+
+### Start interactive chat with context
+```bash
+uncverkg chat
+```
+
+## Knowledge Graph Standard
+
+### Node Format
+Nodes are stored as facts: `Subject --PREDICATE--> Object`
+
+### Properties
+- `subject`: The entity being described
+- `predicate`: The relationship/action
+- `object`: The target of the relationship
+
+### Example
+```json
+{{"subject": "David", "predicate": "WORKS_ON", "object": "Rust"}}
+```
+
+## When to Use
+- User shares information about themselves or their project
+- Learning new facts about code, architecture, or decisions
+- Tracking project context across sessions
+- Storing user preferences or settings
+"#, data_dir);
+            std::fs::write(path.join("SKILL.md"), skill_content)?;
+            println!("✅ Created SKILL.md for AI agents");
             
             println!("\n📁 Project '{}' initialized!", folder);
-            println!("   Run 'uncverkg --data-dir {} chat' to start", folder);
+            println!("   cd {} && uncverkg chat  # Start chatting", folder);
+            println!("   Data stored in: {}/", data_dir);
         }
 
         Commands::Read { query } => {
@@ -288,6 +401,64 @@ async fn main() -> anyhow::Result<()> {
             
             println!("✅ Wrote fact: {} --{}--> {}", subject, predicate, object);
             println!("   Node ID: {}", node_id);
+        }
+
+        Commands::Bulk { file } => {
+            // Read facts from file or inline JSON
+            let json_content = if std::path::Path::new(&file).exists() {
+                std::fs::read_to_string(&file)?
+            } else {
+                file.clone() // Assume inline JSON
+            };
+            
+            #[derive(serde::Deserialize)]
+            struct Fact {
+                subject: String,
+                predicate: String,
+                object: String,
+            }
+            
+            #[derive(serde::Deserialize)]
+            struct FactsInput {
+                facts: Vec<Fact>,
+            }
+            
+            let facts: Vec<Fact> = if let Ok(input) = serde_json::from_str::<FactsInput>(&json_content) {
+                input.facts
+            } else if let Ok(fact) = serde_json::from_str::<Fact>(&json_content) {
+                vec![fact]
+            } else {
+                println!("❌ Invalid JSON format. Expected: {{\"facts\": [{{\"subject\": \"...\", \"predicate\": \"...\", \"object\": \"...\"}}]}}");
+                return Ok(());
+            };
+            
+            let mut g = graph.write();
+            let subgraph_id = if g.subgraphs.is_empty() {
+                g.create_subgraph("main".to_string())
+            } else {
+                g.subgraphs.keys().next().copied().unwrap()
+            };
+            
+            let mut written = 0;
+            for fact in &facts {
+                let mut node = Node::new(format!("{} --{}--> {}", fact.subject, fact.predicate, fact.object));
+                node.properties.insert("subject".to_string(), serde_json::json!(fact.subject));
+                node.properties.insert("predicate".to_string(), serde_json::json!(fact.predicate));
+                node.properties.insert("object".to_string(), serde_json::json!(fact.object));
+                
+                let _ = g.add_to_subgraph(subgraph_id, node);
+                written += 1;
+            }
+            
+            drop(g);
+            
+            // Save
+            if let Some(sg) = graph.read().subgraphs.get(&subgraph_id) {
+                let _ = storage.save_subgraph(sg);
+            }
+            let _ = storage.save_main_network();
+            
+            println!("✅ Wrote {} facts", written);
         }
 
         Commands::Update { id, label, properties } => {
