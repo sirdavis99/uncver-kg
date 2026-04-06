@@ -230,9 +230,10 @@ async fn main() -> anyhow::Result<()> {
             }
             println!("✅ Updated .gitignore (excludes {})", data_dir_name);
             
-            // Create facts/ directory
-            std::fs::create_dir_all("facts")?;
-            println!("✅ Created facts/ directory");
+            // Create facts/ directory inside data_dir
+            let facts_dir = format!("{}/facts", data_dir_name);
+            std::fs::create_dir_all(&facts_dir)?;
+            println!("✅ Created {}/facts/ directory", data_dir_name);
             
             // Create SKILL.md
             let skill_content = format!(r#"# uncverkg Skill
@@ -242,7 +243,8 @@ Use this skill when you need to manage project knowledge using the uncverkg know
 
 ## Setup
 - The project has `kg.json` in the root - uncverkg auto-detects this
-- Knowledge is stored in `{}/` (unique per project, gitignored)
+- Knowledge is stored in `{0}/` (unique per project, gitignored)
+- Bulk facts files go in `{0}/facts/`
 
 ## Commands
 
@@ -253,7 +255,7 @@ uncverkg write --subject "Subject" --predicate "RELATION" --object "Object"
 
 ### Bulk write from JSON file
 ```bash
-uncverkg bulk --file facts/my-facts.json
+uncverkg bulk --file {0}/facts/my-facts.json
 ```
 
 ### Read/search nodes
@@ -505,9 +507,15 @@ Nodes are stored as facts: `Subject --PREDICATE--> Object`
         }
 
         Commands::Bulk { file } => {
-            // Read facts from file or inline JSON
-            let json_content = if std::path::Path::new(&file).exists() {
-                std::fs::read_to_string(&file)?
+            // Try direct path first, then data_dir/facts/
+            let file_path = if std::path::Path::new(&file).exists() {
+                file.clone()
+            } else {
+                format!("{}/facts/{}", data_dir.display(), file)
+            };
+            
+            let json_content = if std::path::Path::new(&file_path).exists() {
+                std::fs::read_to_string(&file_path)?
             } else {
                 file.clone() // Assume inline JSON
             };
