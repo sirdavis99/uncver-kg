@@ -148,6 +148,8 @@ enum Commands {
         background: bool,
     },
     Stats,
+    /// Start MCP server (stdio-based)
+    Mcp,
 }
 
 #[tokio::main]
@@ -1139,6 +1141,11 @@ Use upsert_node tool to add nodes and create_edge tool to connect related nodes 
                 println!("  📝 Global nodes: {}", global_nodes);
                 println!("  📝 Global drafts: {}", global_drafts);
             }
+        }
+
+        Commands::Mcp => {
+            let server = mcp::McpServer::new(storage);
+            server.run()?;
         }
     }
 

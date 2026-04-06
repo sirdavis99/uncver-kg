@@ -2,6 +2,7 @@ pub mod agents;
 pub mod chat;
 pub mod config;
 pub mod graph;
+pub mod mcp;
 pub mod pipeline;
 pub mod providers;
 pub mod storage;
