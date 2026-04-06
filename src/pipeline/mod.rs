@@ -1,7 +1,8 @@
-use crate::providers::{LLMProvider, Message, OllamaProvider};
+use crate::providers::{LLMProvider, Message, OllamaProvider, ToolCall as ProviderToolCall};
 use crate::tools::{ToolCall, ToolRegistry};
 use crate::storage::Storage;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tracing::{info, debug, error};
 
 #[derive(Clone)]
@@ -186,6 +187,91 @@ Your response should:
             .await
             .map(|r| r.content)
             .unwrap_or_else(|_| "I couldn't generate a response.".to_string())
+    }
+
+    pub async fn query_streaming<F>(&self, user_input: &str, mut on_chunk: F) -> String
+    where
+        F: FnMut(String, Option<Vec<ProviderToolCall>>) + Send + 'static,
+    {
+        info!("[QUERY] Starting streaming query: {}", user_input);
+        
+        // Research phase (non-streaming for now, simpler)
+        let context = self.research(user_input).await;
+        debug!("[QUERY] Research context: {}", context);
+        
+        // Actor phase - streaming
+        let context_str = if context.is_empty() {
+            "No prior knowledge found".to_string()
+        } else {
+            context.to_string()
+        };
+
+        let system = format!(
+            r#"You are a helpful AI assistant. Answer the user's question using the provided context.
+
+User question: "{}"
+
+Context from knowledge graph:
+{}
+
+Your response should:
+- Be comprehensive and informative
+- Use the context to provide specific details
+- If context is empty, answer from your general knowledge"#,
+            user_input, context_str
+        );
+
+        let request = crate::providers::LLMRequest {
+            model: self.model.clone(),
+            messages: vec![
+                Message { role: "system".to_string(), content: system },
+            ],
+            temperature: 0.7,
+            max_tokens: Some(2048),
+            tools: Some(self.tools.clone()),
+        };
+
+        // Use Arc + Mutex to share callback safely
+        let on_chunk = Arc::new(Mutex::new(on_chunk));
+        let on_chunk_clone = Arc::clone(&on_chunk);
+
+        let request_clone = request.clone();
+        
+        // Start streaming in background
+        let provider = self.provider.clone();
+        let handle = tokio::spawn(async move {
+            provider.complete_streaming(request_clone, move |content, tool_calls| {
+                if let Ok(mut cb) = on_chunk_clone.lock() {
+                    cb(content, tool_calls);
+                }
+            }).await
+        });
+
+        let response = handle.await.unwrap_or(Err(crate::providers::ProviderError::Other("Task failed".to_string())));
+        
+        match response {
+            Ok(resp) => {
+                // Handle any tool calls from the response
+                if let Some(tcs) = resp.tool_calls {
+                    for tc in tcs {
+                        let tool_call = ToolCall {
+                            tool_name: tc.name,
+                            arguments: tc.arguments,
+                        };
+                        let result = self.tool_registry.execute(tool_call);
+                        if result.success {
+                            debug!("[QUERY] Tool executed successfully");
+                        }
+                    }
+                }
+                info!("[QUERY] Streaming complete, response length: {}", resp.content.len());
+                resp.content
+            }
+            Err(e) => {
+                error!("[QUERY] Streaming error: {}", e);
+                format!("Error: {}", e)
+            }
+        }
     }
 
     async fn run_reviewer(
